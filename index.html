@@ -271,7 +271,11 @@
             document.getElementById('teacher-admin-controls').classList.remove('hidden');
             
             const generatedRoomId = 'botany-' + Math.random().toString(36).substring(2, 7);
-            peer = new Peer(generatedRoomId);
+            peer = new Peer(generatedRoomId, {
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true
+});
             
             peer.on('open', (id) => {
                 document.getElementById('room-display').innerText = `ID: ${id}`;
@@ -301,7 +305,11 @@
             document.getElementById('role-badge').className = "font-bold uppercase tracking-wider text-teal-400";
             if(roomId) document.getElementById('setup-box').classList.add('hidden');
             
-            peer = new Peer();
+            peer = new Peer({
+    host: '0.peerjs.com',
+    port: 443,
+    secure: true
+});
             peer.on('open', () => {
                 if(roomId) {
                     document.getElementById('room-display').innerText = `Linked: ${roomId}`;
@@ -380,6 +388,7 @@
 
         function setupConnectionListeners(activeConn) {
             activeConn.on('data', (payload) => {
+                console.log("Data Received:", payload.type); // <-- Add this line to debug!
                 if (payload.type === 'clear') {
                     canvas.clear();
                 } else if (payload.type === 'sync-canvas') {
@@ -398,6 +407,8 @@
             activeConn.on('close', () => {
                 connections = connections.filter(c => c.peer !== activeConn.peer);
             });
+
+            
         }
 
         function connectToTeacher() {
