@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pro Botany Lab + Live Video</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <style>
+        canvas { touch-action: none; -webkit-user-select: none; }
+        .no-scroll { overflow: hidden; fixed: position; }
+        #local-video { transform: scaleX(-1); }
+    </style>
+</head>
+<body class="bg-slate-900 font-sans h-screen flex flex-col overflow-hidden no-scroll text-slate-100">
+
+    <header class="bg-emerald-950 border-b border-emerald-800 px-6 py-3 flex justify-between items-center shadow-lg z-10">
+        <div class="flex items-center space-x-3">
+            <div class="p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400">
+                <i data-lucide="leaf" class="w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="text-md font-bold tracking-tight text-white">Botany Workspace Pro</h1>
+                <p class="text-xs text-emerald-400/70">Interactive Classroom Engine</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-4 bg-emerald-900/40 border border-emerald-800/60 px-4 py-2 rounded-xl text-xs">
+            <span id="role-badge" class="font-bold uppercase tracking-wider text-amber-400">Syncing...</span>
+            <span class="text-emerald-800">|</span>
+            <span id="room-display" class="font-mono bg-emerald-950/80 px-2 py-1 rounded border border-emerald-800 text-emerald-300 select-all cursor-pointer">Loading Link...</span>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        
+        <nav class="w-64 bg-slate-950 border-r border-slate-800 flex flex-col justify-between p-4">
+            <div class="space-y-1.5">
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3 mb-2">Modules</p>
+                
+                <button onclick="switchTab('whiteboard')" id="btn-whiteboard" class="tab-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium text-sm transition">
+                    <i data-lucide="presentation" class="w-4 h-4"></i> <span>Studio Board</span>
+                </button>
+                
+                <button onclick="switchTab('quiz')" id="btn-quiz" class="tab-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-slate-200 border border-transparent font-medium text-sm transition">
+                    <i data-lucide="clipboard-check" class="w-4 h-4"></i> <span>Live Quiz</span>
+                </button>
+
+                <div class="pt-2 border-t border-slate-900 my-2"></div>
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3 mb-2">Media</p>
+                
+                <button onclick="startVideoConference()" class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 font-semibold text-sm transition">
+                    <i data-lucide="video" class="w-4 h-4"></i> <span>Start Video Call</span>
+                </button>
+
+                <div class="pt-2 border-t border-slate-900 my-2"></div>
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3 mb-2">Teacher Admin</p>
+                
+                <label class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-slate-200 border border-transparent font-medium text-sm transition cursor-pointer">
+                    <i data-lucide="file-up" class="w-4 h-4 text-emerald-500"></i>
+                    <span>Import Worksheet / PDF</span>
+                    <input type="file" id="pdf-upload" accept="application/pdf" class="hidden" onchange="handlePDFUpload(event)">
+                </label>
+
+                <label class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-slate-200 border border-transparent font-medium text-sm transition cursor-pointer">
+                    <i data-lucide="upload-cloud" class="w-4 h-4 text-amber-500"></i>
+                    <span>Load Custom Quiz (.txt)</span>
+                    <input type="file" id="quiz-upload" accept=".txt,.csv" class="hidden" onchange="handleQuizUpload(event)">
+                </label>
+            </div>
+            
+            <div id="setup-box" class="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                <p class="text-[11px] text-slate-400 font-medium mb-1.5">Join Live Session</p>
+                <input id="join-room-id" type="text" placeholder="Paste Room Hash" class="w-full text-xs p-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 mb-2 focus:outline-none focus:border-emerald-500">
+                <button onclick="connectToTeacher()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold py-2 rounded-lg transition shadow-md shadow-emerald-900/20">Connect Peer</button>
+            </div>
+        </nav>
+
+        <main class="flex-1 bg-slate-900 relative">
+            
+            <div id="video-container" class="hidden absolute bottom-6 right-6 z-50 flex flex-col space-y-3 pointer-events-none">
+                <div class="relative w-48 h-36 bg-slate-950 rounded-2xl border-2 border-emerald-500 shadow-2xl overflow-hidden pointer-events-auto">
+                    <video id="remote-video" autoplay playsinline class="w-full h-full object-cover"></video>
+                    <span class="absolute bottom-2 left-2 bg-slate-900/80 px-2 py-0.5 rounded text-[10px] border border-slate-800">Class Feed</span>
+                </div>
+                <div class="relative w-32 h-24 bg-slate-950 rounded-xl border border-slate-800 shadow-xl overflow-hidden self-end pointer-events-auto">
+                    <video id="local-video" autoplay playsinline muted class="w-full h-full object-cover"></video>
+                    <span class="absolute bottom-1 left-1 bg-slate-900/80 px-1.5 py-0.5 rounded text-[8px]">You</span>
+                </div>
+            </div>
+
+            <div id="tab-whiteboard" class="tab-content w-full h-full flex flex-col p-4">
+                <div class="bg-slate-950 p-2 rounded-t-xl border border-slate-800 flex items-center justify-between">
+                    <div class="flex items-center space-x-1.5">
+                        <button onclick="setMode('draw')" class="tool-btn p-2 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition" title="Apple Pencil / Draw"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>
+                        <button onclick="setMode('select')" class="tool-btn p-2 rounded-lg text-slate-400 hover:bg-slate-900 transition" title="Select / Move Elements"><i data-lucide="mouse-pointer" class="w-4 h-4"></i></button>
+                        <span class="text-slate-800">|</span>
+                        <button onclick="addStickyNote('#fef08a')" class="p-2 rounded-lg bg-yellow-200 hover:scale-105 transition shadow-sm" title="Yellow Note"></button>
+                        <button onclick="addStickyNote('#bbf7d0')" class="p-2 rounded-lg bg-green-200 hover:scale-105 transition shadow-sm" title="Green Note"></button>
+                        <button onclick="addStickyNote('#bfdbfe')" class="p-2 rounded-lg bg-blue-200 hover:scale-105 transition shadow-sm" title="Blue Note"></button>
+                    </div>
+                    <button onclick="deleteSelected()" class="p-2 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg hover:bg-rose-500/20 transition" title="Delete Selected Item"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                </div>
+                <div class="flex-1 bg-slate-950 border-b border-x border-slate-800 rounded-b-xl shadow-2xl relative overflow-hidden">
+                    <canvas id="classroom-canvas"></canvas>
+                </div>
+            </div>
+
+            <div id="tab-quiz" class="tab-content hidden w-full h-full p-6 flex flex-col items-center justify-center">
+                <div id="quiz-container" class="bg-slate-950 p-8 rounded-2xl shadow-xl border border-slate-800 max-w-xl w-full text-center">
+                    <div class="inline-flex p-3 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-2xl mb-4">
+                        <i data-lucide="help-circle" class="w-6 h-6"></i>
+                    </div>
+                    <h3 id="quiz-title" class="text-lg font-bold text-slate-100 mb-1">Interactive Quiz Module</h3>
+                    <p id="quiz-question" class="text-sm text-slate-400 mb-6">No custom quiz loaded yet. Teacher can load questions using a .txt template on the left panel.</p>
+                    <div id="quiz-options-box" class="space-y-2.5 text-left"></div>
+                    <div id="quiz-feedback" class="mt-4 text-sm font-semibold hidden"></div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+        lucide.createIcons();
+
+        const canvasElement = document.getElementById('classroom-canvas');
+        canvasElement.width = canvasElement.parentElement.clientWidth;
+        canvasElement.height = canvasElement.parentElement.clientHeight;
+        const canvas = new fabric.Canvas('classroom-canvas', { isDrawingMode: true, enableRetinaScaling: true });
+        canvas.freeDrawingBrush.width = 3;
+        canvas.freeDrawingBrush.color = '#10b981';
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('bg-emerald-500/10', 'text-emerald-400', 'border-emerald-500/20'));
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            document.getElementById(`btn-${tabId}`).classList.add('bg-emerald-500/10', 'text-emerald-400', 'border-emerald-500/20');
+            canvas.calcOffset();
+        }
+
+        function setMode(mode) {
+            canvas.isDrawingMode = (mode === 'draw');
+            document.querySelectorAll('.tool-btn').forEach(el => el.classList.remove('bg-emerald-500/20', 'text-emerald-400', 'border-emerald-500/30'));
+            event.currentTarget.classList.add('bg-emerald-500/20', 'text-emerald-400', 'border-emerald-500/30');
+        }
+
+        // FIXED: Removes ONLY the selected line or selected object instead of running canvas.clear()
+        function deleteSelected() {
+            const activeObjects = canvas.getActiveObjects();
+            if (activeObjects.length > 0) {
+                activeObjects.forEach(obj => canvas.remove(obj));
+                canvas.discardActiveObject();
+                canvas.requestRenderAll();
+                broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) });
+            }
+        }
+
+        // FIXED: Now uses a single IText with a background fill color. 
+        // This lets teachers and students click "Select/Move" mode, double click the note, and type instantly!
+        function addStickyNote(colorHex) {
+            const note = new fabric.IText('Double click\nto write notes!', {
+                left: 100,
+                top: 100,
+                fontSize: 14,
+                fontFamily: 'sans-serif',
+                fill: '#1e293b',
+                backgroundColor: colorHex,
+                padding: 20,
+                rx: 8,
+                ry: 8,
+                width: 150,
+                splitByGrapheme: true
+            });
+            canvas.add(note);
+            canvas.setActiveObject(note);
+            broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) });
+        }
+
+        // Quiz file upload mechanics
+        let activeQuizQuestions = [];
+        function handleQuizUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) { parseQuizContent(e.target.result); };
+            reader.readAsText(file);
+        }
+
+        function parseQuizContent(text) {
+            activeQuizQuestions = [];
+            text.split('\n').forEach(line => {
+                const parts = line.split('|');
+                if (parts.length >= 3) {
+                    activeQuizQuestions.push({ question: parts[0].trim(), options: parts[1].split(',').map(o => o.trim()), correctIndex: parseInt(parts[2].trim(), 10) });
+                }
+            });
+            if (activeQuizQuestions.length > 0) {
+                loadQuestion(0);
+                broadcastData({ type: 'load-quiz', data: activeQuizQuestions });
+            }
+        }
+
+        function loadQuestion(index) {
+            const q = activeQuizQuestions[index];
+            document.getElementById('quiz-title').innerText = `Question ${index + 1}`;
+            document.getElementById('quiz-question').innerText = q.question;
+            const optionsBox = document.getElementById('quiz-options-box');
+            optionsBox.innerHTML = '';
+            q.options.forEach((opt, idx) => {
+                optionsBox.innerHTML += `<button onclick=\"submitAnswer(${idx === q.correctIndex})\" class=\"w-full p-3 bg-slate-900 border border-slate-800 rounded-xl hover:border-emerald-500 transition text-sm flex items-center justify-between text-slate-300\"><span>${opt}</span><i data-lucide=\"circle\" class=\"w-4 h-4 text-slate-600\"></i></button>`;
+            });
+            lucide.createIcons();
+            document.getElementById('quiz-feedback').classList.add('hidden');
+        }
+
+        function submitAnswer(isCorrect) {
+            const fb = document.getElementById('quiz-feedback');
+            fb.classList.remove('hidden', 'text-emerald-400', 'text-rose-400');
+            fb.innerText = isCorrect ? "🎉 Excellent! That is correct." : "❌ Incorrect. Try again!";
+            fb.classList.add(isCorrect ? 'text-emerald-400' : 'text-rose-400');
+        }
+
+        function handlePDFUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const fileReader = new FileReader();
+            fileReader.onload = function() {
+                pdfjsLib.getDocument(new Uint8Array(this.result)).promise.then(pdf => {
+                    pdf.getPage(1).then(page => {
+                        const viewport = page.getViewport({ scale: 1.5 });
+                        const renderCanvas = document.createElement('canvas');
+                        renderCanvas.height = viewport.height; renderCanvas.width = viewport.width;
+                        page.render({ canvasContext: renderCanvas.getContext('2d'), viewport: viewport }).promise.then(() => {
+                            fabric.Image.fromURL(renderCanvas.toDataURL('image/png'), (fabImg) => {
+                                fabImg.set({ left: 20, top: 20 });
+                                fabImg.scaleToWidth(canvas.width * 0.8);
+                                canvas.add(fabImg);
+                                broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) });
+                            });
+                        });
+                    });
+                });
+            };
+            fileReader.readAsArrayBuffer(file);
+        }
+
+        // Network Configuration
+        let peer, conn = null, isTeacher = true;
+        let localStream = null;
+        let currentPeerId = null;
+        
+        const urlParams = new URLSearchParams(window.location.search);
+        const targetRoomId = urlParams.get('room');
+
+        if (targetRoomId) {
+            isTeacher = false;
+            document.getElementById('role-badge').innerText = "Student Node";
+            document.getElementById('role-badge').className = "font-bold uppercase tracking-wider text-teal-400";
+            document.getElementById('setup-box').classList.add('hidden');
+            
+            peer = new Peer();
+            peer.on('open', () => {
+                document.getElementById('room-display').innerText = `Linked: ${targetRoomId}`;
+                conn = peer.connect(targetRoomId);
+                currentPeerId = targetRoomId;
+                setupConnectionListeners();
+            });
+        } else {
+            isTeacher = true;
+            document.getElementById('role-badge').innerText = "Host Teacher";
+            const generatedRoomId = 'botany-' + Math.random().toString(36).substring(2, 7);
+            peer = new Peer(generatedRoomId);
+            
+            peer.on('open', (id) => {
+                document.getElementById('room-display').innerText = `ID: ${id}`;
+                window.history.pushState ? window.history.pushState({}, '', `?room=${id}`) : window.location.search = `?room=${id}`;
+            });
+
+            peer.on('connection', (connection) => {
+                conn = connection;
+                currentPeerId = connection.peer;
+                setupConnectionListeners();
+                setTimeout(() => { broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) }); }, 1000);
+            });
+        }
+
+        peer.on('call', (call) => {
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
+                localStream = stream;
+                document.getElementById('local-video').srcObject = stream;
+                document.getElementById('video-container').classList.remove('hidden');
+                call.answer(stream);
+                call.on('stream', (remoteStream) => {
+                    document.getElementById('remote-video').srcObject = remoteStream;
+                });
+            }).catch(err => console.error(err));
+        });
+
+        function startVideoConference() {
+            if (!currentPeerId) {
+                alert("Please wait until a student joins!");
+                return;
+            }
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
+                localStream = stream;
+                document.getElementById('local-video').srcObject = stream;
+                document.getElementById('video-container').classList.remove('hidden');
+                const call = peer.call(currentPeerId, stream);
+                call.on('stream', (remoteStream) => {
+                    document.getElementById('remote-video').srcObject = remoteStream;
+                });
+            }).catch(err => alert("Camera permission is required."));
+        }
+
+        // Capture typing modification changes and sync to peers seamlessly
+        canvas.on('object:added', (e) => { if(e.target && !e.target.isFromServer) broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) })});
+        canvas.on('object:modified', () => broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) }));
+        canvas.on('text:changed', () => broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) }));
+
+        function broadcastData(payload) { if (conn && conn.open) conn.send(payload); }
+
+        function setupConnectionListeners() {
+            conn.on('data', (payload) => {
+                if (payload.type === 'clear') canvas.clear();
+                else if (payload.type === 'sync-canvas') {
+                    canvas.loadFromJSON(payload.data, () => {
+                        canvas.forEachObject(obj => obj.isFromServer = true);
+                        canvas.renderAll();
+                    });
+                } else if (payload.type === 'load-quiz') {
+                    activeQuizQuestions = payload.data;
+                    loadQuestion(0);
+                }
+            });
+        }
+
+        function connectToTeacher() {
+            const idInput = document.getElementById('join-room-id').value.trim();
+            if(idInput) window.location.search = `?room=${idInput}`;
+        }
+    </script>
+</body>
+</html>
