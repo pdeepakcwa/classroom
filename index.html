@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Class Lab + Live Video</title>
+    <title>Pro Botany Lab + Live Video</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
@@ -23,7 +23,7 @@
                 <i data-lucide="leaf" class="w-6 h-6"></i>
             </div>
             <div>
-                <h1 class="text-md font-bold tracking-tight text-white">Classroom Workspace Pro</h1>
+                <h1 class="text-md font-bold tracking-tight text-white">Botany Workspace Pro</h1>
                 <p class="text-xs text-emerald-400/70">Interactive Classroom Engine</p>
             </div>
         </div>
@@ -244,17 +244,18 @@
         }
 
         // Network Setup & Routing Gate
-        let peer, conn = null, isTeacher = false;
-        let localStream = null, currentPeerId = null;
+        let peer = null;
+        let connections = []; // Array to track all connected nodes
+        let isTeacher = false;
+        let localStream = null;
+        let currentPeerId = null;
         
         const urlParams = new URLSearchParams(window.location.search);
         const targetRoomId = urlParams.get('room');
 
         if (targetRoomId) {
-            // Student Route
             setupStudentMode(targetRoomId);
         } else {
-            // Request Teacher Security PIN Check
             const inputPin = prompt("Enter Teacher Security Passcode to host room (Leave empty or wrong to enter as student):");
             if (inputPin === TEACHER_PIN) {
                 setupTeacherMode();
@@ -269,7 +270,7 @@
             document.getElementById('role-badge').innerText = "Host Teacher";
             document.getElementById('teacher-admin-controls').classList.remove('hidden');
             
-            const generatedRoomId = 'class-' + Math.random().toString(36).substring(2, 7);
+            const generatedRoomId = 'botany-' + Math.random().toString(36).substring(2, 7);
             peer = new Peer(generatedRoomId);
             
             peer.on('open', (id) => {
@@ -278,12 +279,20 @@
             });
 
             peer.on('connection', (connection) => {
-                conn = connection;
+                connections.push(connection);
                 currentPeerId = connection.peer;
-                setupConnectionListeners();
-                // Safe initialization delay
-                setTimeout(() => { broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) }); }, 800);
+                
+                setupConnectionListeners(connection);
+                
+                // Safe transmission delay once student connection completes handshake
+                connection.on('open', () => {
+                    setTimeout(() => { 
+                        connection.send({ type: 'sync-canvas', data: JSON.stringify(canvas) }); 
+                    }, 500);
+                });
             });
+            
+            setupCallListener();
         }
 
         function setupStudentMode(roomId) {
@@ -296,26 +305,35 @@
             peer.on('open', () => {
                 if(roomId) {
                     document.getElementById('room-display').innerText = `Linked: ${roomId}`;
-                    conn = peer.connect(roomId);
+                    const conn = peer.connect(roomId);
                     currentPeerId = roomId;
-                    setupConnectionListeners();
+                    
+                    // Wait for connection pipeline to open before creating payload interceptors
+                    conn.on('open', () => {
+                        connections.push(conn);
+                        setupConnectionListeners(conn);
+                    });
                 } else {
                     document.getElementById('room-display').innerText = "Not Connected";
                 }
             });
+
+            setupCallListener();
         }
 
-        peer.on('call', (call) => {
-            navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
-                localStream = stream;
-                document.getElementById('local-video').srcObject = stream;
-                document.getElementById('video-container').classList.remove('hidden');
-                call.answer(stream);
-                call.on('stream', (remoteStream) => {
-                    document.getElementById('remote-video').srcObject = remoteStream;
-                });
-            }).catch(err => console.error(err));
-        });
+        function setupCallListener() {
+            peer.on('call', (call) => {
+                navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
+                    localStream = stream;
+                    document.getElementById('local-video').srcObject = stream;
+                    document.getElementById('video-container').classList.remove('hidden');
+                    call.answer(stream);
+                    call.on('stream', (remoteStream) => {
+                        document.getElementById('remote-video').srcObject = remoteStream;
+                    });
+                }).catch(err => console.error(err));
+            });
+        }
 
         function startVideoConference() {
             if (!currentPeerId) {
@@ -333,7 +351,7 @@
             }).catch(err => alert("Camera permission is required."));
         }
 
-        // FIXED: Targeted state listeners to clear out bouncing packet storms
+        // Targeted canvas state listeners
         canvas.on('object:added', (e) => { 
             if (isReceivingNetworkUpdate) return;
             broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) });
@@ -346,24 +364,39 @@
             if (isReceivingNetworkUpdate) return;
             broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) });
         });
+        // Captures freehand brush drawing stroke completion updates
+        canvas.on('path:created', () => {
+            if (isReceivingNetworkUpdate) return;
+            broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) });
+        });
 
-        function broadcastData(payload) { if (conn && conn.open) conn.send(payload); }
+        function broadcastData(payload) { 
+            connections.forEach(conn => {
+                if (conn && conn.open) {
+                    conn.send(payload);
+                }
+            });
+        }
 
-        function setupConnectionListeners() {
-            conn.on('data', (payload) => {
+        function setupConnectionListeners(activeConn) {
+            activeConn.on('data', (payload) => {
                 if (payload.type === 'clear') {
                     canvas.clear();
                 } else if (payload.type === 'sync-canvas') {
-                    isReceivingNetworkUpdate = true; // Block event dispatch loop
+                    isReceivingNetworkUpdate = true; 
                     canvas.loadFromJSON(payload.data, () => {
                         canvas.requestRenderAll();
-                        isReceivingNetworkUpdate = false; // Release lock flag
+                        isReceivingNetworkUpdate = false; 
                     });
                 } else if (payload.type === 'load-quiz') {
                     activeQuizQuestions = payload.data;
                     loadQuestion(0);
-                    switchTab('quiz'); // Direct student straight to active quiz panel view
+                    switchTab('quiz'); 
                 }
+            });
+
+            activeConn.on('close', () => {
+                connections = connections.filter(c => c.peer !== activeConn.peer);
             });
         }
 
