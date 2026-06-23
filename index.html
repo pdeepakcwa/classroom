@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pro Botany Lab + Live Video</title>
+    <title>Class Lab + Live Video</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
@@ -23,7 +23,7 @@
                 <i data-lucide="leaf" class="w-6 h-6"></i>
             </div>
             <div>
-                <h1 class="text-md font-bold tracking-tight text-white">Botany Workspace Pro</h1>
+                <h1 class="text-md font-bold tracking-tight text-white">Classroom Workspace Pro</h1>
                 <p class="text-xs text-emerald-400/70">Interactive Classroom Engine</p>
             </div>
         </div>
@@ -269,7 +269,7 @@
             document.getElementById('role-badge').innerText = "Host Teacher";
             document.getElementById('teacher-admin-controls').classList.remove('hidden');
             
-            const generatedRoomId = 'botany-' + Math.random().toString(36).substring(2, 7);
+            const generatedRoomId = 'class-' + Math.random().toString(36).substring(2, 7);
             peer = new Peer(generatedRoomId);
             
             peer.on('open', (id) => {
