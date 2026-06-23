@@ -55,20 +55,22 @@
                     <i data-lucide="video" class="w-4 h-4"></i> <span>Start Video Call</span>
                 </button>
 
-                <div class="pt-2 border-t border-slate-900 my-2"></div>
-                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3 mb-2">Teacher Admin</p>
-                
-                <label class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-slate-200 border border-transparent font-medium text-sm transition cursor-pointer">
-                    <i data-lucide="file-up" class="w-4 h-4 text-emerald-500"></i>
-                    <span>Import Worksheet / PDF</span>
-                    <input type="file" id="pdf-upload" accept="application/pdf" class="hidden" onchange="handlePDFUpload(event)">
-                </label>
+                <div id="teacher-admin-controls" class="hidden">
+                    <div class="pt-2 border-t border-slate-900 my-2"></div>
+                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3 mb-2">Teacher Admin</p>
+                    
+                    <label class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-slate-200 border border-transparent font-medium text-sm transition cursor-pointer">
+                        <i data-lucide="file-up" class="w-4 h-4 text-emerald-500"></i>
+                        <span>Import Worksheet / PDF</span>
+                        <input type="file" id="pdf-upload" accept="application/pdf" class="hidden" onchange="handlePDFUpload(event)">
+                    </label>
 
-                <label class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-slate-200 border border-transparent font-medium text-sm transition cursor-pointer">
-                    <i data-lucide="upload-cloud" class="w-4 h-4 text-amber-500"></i>
-                    <span>Load Custom Quiz (.txt)</span>
-                    <input type="file" id="quiz-upload" accept=".txt,.csv" class="hidden" onchange="handleQuizUpload(event)">
-                </label>
+                    <label class="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-slate-200 border border-transparent font-medium text-sm transition cursor-pointer">
+                        <i data-lucide="upload-cloud" class="w-4 h-4 text-amber-500"></i>
+                        <span>Load Custom Quiz (.txt)</span>
+                        <input type="file" id="quiz-upload" accept=".txt,.csv" class="hidden" onchange="handleQuizUpload(event)">
+                    </label>
+                </div>
             </div>
             
             <div id="setup-box" class="bg-slate-900 p-3 rounded-xl border border-slate-800">
@@ -114,7 +116,7 @@
                         <i data-lucide="help-circle" class="w-6 h-6"></i>
                     </div>
                     <h3 id="quiz-title" class="text-lg font-bold text-slate-100 mb-1">Interactive Quiz Module</h3>
-                    <p id="quiz-question" class="text-sm text-slate-400 mb-6">No custom quiz loaded yet. Teacher can load questions using a .txt template on the left panel.</p>
+                    <p id="quiz-question" class="text-sm text-slate-400 mb-6">Waiting for teacher to broadcast quiz...</p>
                     <div id="quiz-options-box" class="space-y-2.5 text-left"></div>
                     <div id="quiz-feedback" class="mt-4 text-sm font-semibold hidden"></div>
                 </div>
@@ -127,12 +129,18 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
         lucide.createIcons();
 
+        // Security Configuration
+        const TEACHER_PIN = "999999"; // 🔑 Change this to your preferred classroom password!
+
         const canvasElement = document.getElementById('classroom-canvas');
         canvasElement.width = canvasElement.parentElement.clientWidth;
         canvasElement.height = canvasElement.parentElement.clientHeight;
         const canvas = new fabric.Canvas('classroom-canvas', { isDrawingMode: true, enableRetinaScaling: true });
         canvas.freeDrawingBrush.width = 3;
         canvas.freeDrawingBrush.color = '#10b981';
+
+        // Block flag to prevent infinite network echo looping
+        let isReceivingNetworkUpdate = false; 
 
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
@@ -148,7 +156,6 @@
             event.currentTarget.classList.add('bg-emerald-500/20', 'text-emerald-400', 'border-emerald-500/30');
         }
 
-        // FIXED: Removes ONLY the selected line or selected object instead of running canvas.clear()
         function deleteSelected() {
             const activeObjects = canvas.getActiveObjects();
             if (activeObjects.length > 0) {
@@ -159,28 +166,16 @@
             }
         }
 
-        // FIXED: Now uses a single IText with a background fill color. 
-        // This lets teachers and students click "Select/Move" mode, double click the note, and type instantly!
         function addStickyNote(colorHex) {
             const note = new fabric.IText('Double click\nto write notes!', {
-                left: 100,
-                top: 100,
-                fontSize: 14,
-                fontFamily: 'sans-serif',
-                fill: '#1e293b',
-                backgroundColor: colorHex,
-                padding: 20,
-                rx: 8,
-                ry: 8,
-                width: 150,
-                splitByGrapheme: true
+                left: 100, top: 100, fontSize: 14, fontFamily: 'sans-serif', fill: '#1e293b',
+                backgroundColor: colorHex, padding: 20, rx: 8, ry: 8, width: 150, splitByGrapheme: true
             });
             canvas.add(note);
             canvas.setActiveObject(note);
             broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) });
         }
 
-        // Quiz file upload mechanics
         let activeQuizQuestions = [];
         function handleQuizUpload(event) {
             const file = event.target.files[0];
@@ -248,30 +243,32 @@
             fileReader.readAsArrayBuffer(file);
         }
 
-        // Network Configuration
-        let peer, conn = null, isTeacher = true;
-        let localStream = null;
-        let currentPeerId = null;
+        // Network Setup & Routing Gate
+        let peer, conn = null, isTeacher = false;
+        let localStream = null, currentPeerId = null;
         
         const urlParams = new URLSearchParams(window.location.search);
         const targetRoomId = urlParams.get('room');
 
         if (targetRoomId) {
-            isTeacher = false;
-            document.getElementById('role-badge').innerText = "Student Node";
-            document.getElementById('role-badge').className = "font-bold uppercase tracking-wider text-teal-400";
-            document.getElementById('setup-box').classList.add('hidden');
-            
-            peer = new Peer();
-            peer.on('open', () => {
-                document.getElementById('room-display').innerText = `Linked: ${targetRoomId}`;
-                conn = peer.connect(targetRoomId);
-                currentPeerId = targetRoomId;
-                setupConnectionListeners();
-            });
+            // Student Route
+            setupStudentMode(targetRoomId);
         } else {
+            // Request Teacher Security PIN Check
+            const inputPin = prompt("Enter Teacher Security Passcode to host room (Leave empty or wrong to enter as student):");
+            if (inputPin === TEACHER_PIN) {
+                setupTeacherMode();
+            } else {
+                alert("Incorrect PIN. Switching you to Student Mode. Please enter a Teacher Room ID to begin.");
+                setupStudentMode(null);
+            }
+        }
+
+        function setupTeacherMode() {
             isTeacher = true;
             document.getElementById('role-badge').innerText = "Host Teacher";
+            document.getElementById('teacher-admin-controls').classList.remove('hidden');
+            
             const generatedRoomId = 'botany-' + Math.random().toString(36).substring(2, 7);
             peer = new Peer(generatedRoomId);
             
@@ -284,7 +281,27 @@
                 conn = connection;
                 currentPeerId = connection.peer;
                 setupConnectionListeners();
-                setTimeout(() => { broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) }); }, 1000);
+                // Safe initialization delay
+                setTimeout(() => { broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) }); }, 800);
+            });
+        }
+
+        function setupStudentMode(roomId) {
+            isTeacher = false;
+            document.getElementById('role-badge').innerText = "Student Node";
+            document.getElementById('role-badge').className = "font-bold uppercase tracking-wider text-teal-400";
+            if(roomId) document.getElementById('setup-box').classList.add('hidden');
+            
+            peer = new Peer();
+            peer.on('open', () => {
+                if(roomId) {
+                    document.getElementById('room-display').innerText = `Linked: ${roomId}`;
+                    conn = peer.connect(roomId);
+                    currentPeerId = roomId;
+                    setupConnectionListeners();
+                } else {
+                    document.getElementById('room-display').innerText = "Not Connected";
+                }
             });
         }
 
@@ -302,7 +319,7 @@
 
         function startVideoConference() {
             if (!currentPeerId) {
-                alert("Please wait until a student joins!");
+                alert("Please wait until a peer link is established!");
                 return;
             }
             navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
@@ -316,24 +333,36 @@
             }).catch(err => alert("Camera permission is required."));
         }
 
-        // Capture typing modification changes and sync to peers seamlessly
-        canvas.on('object:added', (e) => { if(e.target && !e.target.isFromServer) broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) })});
-        canvas.on('object:modified', () => broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) }));
-        canvas.on('text:changed', () => broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) }));
+        // FIXED: Targeted state listeners to clear out bouncing packet storms
+        canvas.on('object:added', (e) => { 
+            if (isReceivingNetworkUpdate) return;
+            broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) });
+        });
+        canvas.on('object:modified', () => {
+            if (isReceivingNetworkUpdate) return;
+            broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) });
+        });
+        canvas.on('text:changed', () => {
+            if (isReceivingNetworkUpdate) return;
+            broadcastData({ type: 'sync-canvas', data: JSON.stringify(canvas) });
+        });
 
         function broadcastData(payload) { if (conn && conn.open) conn.send(payload); }
 
         function setupConnectionListeners() {
             conn.on('data', (payload) => {
-                if (payload.type === 'clear') canvas.clear();
-                else if (payload.type === 'sync-canvas') {
+                if (payload.type === 'clear') {
+                    canvas.clear();
+                } else if (payload.type === 'sync-canvas') {
+                    isReceivingNetworkUpdate = true; // Block event dispatch loop
                     canvas.loadFromJSON(payload.data, () => {
-                        canvas.forEachObject(obj => obj.isFromServer = true);
-                        canvas.renderAll();
+                        canvas.requestRenderAll();
+                        isReceivingNetworkUpdate = false; // Release lock flag
                     });
                 } else if (payload.type === 'load-quiz') {
                     activeQuizQuestions = payload.data;
                     loadQuestion(0);
+                    switchTab('quiz'); // Direct student straight to active quiz panel view
                 }
             });
         }
